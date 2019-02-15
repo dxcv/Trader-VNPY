@@ -17,7 +17,7 @@ import traceback
 from datetime import datetime, timedelta
 from copy import copy
 from math import pow
-from urllib import urlencode
+from urllib.parse import urlencode
 
 from requests import ConnectionError
 
@@ -192,7 +192,7 @@ class BitmexRestApi(RestClient):
         """BitMEX的签名方案"""
         # 生成签名
         expires = int(time.time() + 5)
-        
+
         if request.params:
             query = urlencode(request.params)
             path = request.path + '?' + query
@@ -205,7 +205,11 @@ class BitmexRestApi(RestClient):
             request.data = ''
         
         msg = request.method + '/api/v1' + path + str(expires) + request.data
-        signature = hmac.new(self.apiSecret, msg,
+
+        apiSecret = self.apiSecret.encode('utf-8')
+        msg_new = msg.encode('utf-8')
+
+        signature = hmac.new(apiSecret, msg_new,
                              digestmod=hashlib.sha256).hexdigest()
         
         # 添加表头
@@ -275,7 +279,7 @@ class BitmexRestApi(RestClient):
             direction=orderReq.direction,
             offset=orderReq.offset,
         )
-        
+
         self.addRequest('POST', '/order', callback=self.onSendOrder, data=data, extra=vtOrder,
                         onFailed=self.onSendOrderFailed,
                         onError=self.onSendOrderError,
@@ -349,8 +353,7 @@ class BitmexRestApi(RestClient):
         e.errorID = httpStatusCode
         e.errorMsg = request.response.text
         self.gateway.onError(e)
-        print(request.response.text)
-    
+
     #----------------------------------------------------------------------
     def onError(self, exceptionType, exceptionValue, tb, request):
         """
@@ -487,7 +490,11 @@ class BitmexWebsocketApi(WebsocketClient):
         method = 'GET'
         path = '/realtime'
         msg = method + path + str(expires)
-        signature = hmac.new(self.apiSecret, msg, digestmod=hashlib.sha256).hexdigest()
+
+        msg_new = msg.encode('utf-8')
+        apiSecret = self.apiSecret.encode('utf-8')
+
+        signature = hmac.new(apiSecret, msg_new, digestmod=hashlib.sha256).hexdigest()
         
         req = {
             'op': 'authKey', 
@@ -498,11 +505,28 @@ class BitmexWebsocketApi(WebsocketClient):
     #----------------------------------------------------------------------
     def subscribe(self):
         """"""
+        for symbol in self.tickDict.keys():
+            instrument = 'instrument:' + symbol
+            trade = 'trade:' + symbol
+            orderBook10 = 'orderBook10:' + symbol
+
+            req = {
+            'op': 'subscribe',
+            'args': [instrument, trade, orderBook10]
+            }
+            self.sendPacket(req)
+
         req = {
             'op': 'subscribe',
-            'args': ['instrument', 'trade', 'orderBook10', 'execution', 'order', 'position', 'margin']
-        }
+            'args': ['execution', 'order', 'position', 'margin']
+            }
         self.sendPacket(req)
+
+        # req = {
+        #     'op': 'subscribe',
+        #     'args': ['instrument', 'trade', 'orderBook10', 'execution', 'order', 'position', 'margin']
+        # }
+        # self.sendPacket(req)
     
     #----------------------------------------------------------------------
     def onTick(self, d):
@@ -514,10 +538,13 @@ class BitmexWebsocketApi(WebsocketClient):
             return
         
         tick.lastPrice = d['price']
-        
-        date, time = str(d['timestamp']).split('T')
+
+        d['timestamp'] = UTC2Local(d['timestamp'])
+
+        date, time = str(d['timestamp']).split(' ')
         tick.date = date.replace('-', '')
-        tick.time = time.replace('Z', '')
+        # tick.time = time.replace('Z', '')
+        tick.time = time
         
         tick = copy(tick)
         self.gateway.onTick(tick)
@@ -538,17 +565,21 @@ class BitmexWebsocketApi(WebsocketClient):
         for n, buf in enumerate(d['asks'][:5]):
             price, volume = buf
             tick.__setattr__('askPrice%s' %(n+1), price)
-            tick.__setattr__('askVolume%s' %(n+1), volume)                
-        
-        date, time = str(d['timestamp']).split('T')
+            tick.__setattr__('askVolume%s' %(n+1), volume)
+
+        d['timestamp'] = UTC2Local(d['timestamp'])  #convert utc to localtime
+
+        date, time = str(d['timestamp']).split(' ')
+
         tick.date = date.replace('-', '')
-        tick.time = time.replace('Z', '')
-        
+        # tick.time = time.replace('Z', '')
+        tick.time = time
         tick = copy(tick)
         self.gateway.onTick(tick)
     
     #----------------------------------------------------------------------
     def onTrade(self, d):
+        print('onTrade',d)
         """"""
         if not d['lastQty']:
             return
@@ -582,13 +613,17 @@ class BitmexWebsocketApi(WebsocketClient):
         trade.direction = directionMapReverse[d['side']]
         trade.price = d['lastPx']
         trade.volume = d['lastQty']
-        trade.tradeTime = d['timestamp'][0:10].replace('-', '')
+
+        d['timestamp'] = UTC2Local(d['timestamp'])
+        trade.tradeTime = str(d['timestamp'])[0:10].replace('-', '')
         
         self.gateway.onTrade(trade)
     
     #----------------------------------------------------------------------
     def onOrder(self, d):
         """"""
+        print('onOrder:',d)
+
         if 'ordStatus' not in d:
             return
         
@@ -616,7 +651,9 @@ class BitmexWebsocketApi(WebsocketClient):
                 order.price = d['price']
                 
             order.totalVolume = d['orderQty']
-            order.orderTime = d['timestamp'][0:10].replace('-', '')
+
+            d['timestamp'] = UTC2Local(d['timestamp'])
+            order.orderTime = str(d['timestamp'])[0:10].replace('-', '')
     
             self.orderDict[sysID] = order
         
@@ -693,4 +730,12 @@ def printDict(d):
     l.sort()
     for k in l:
         print(k, d[k])
+
+def UTC2Local(timestr):
+
+    UTC_FORMAT = "%Y-%m-%dT%H:%M:%S.%fZ"
+    utcTime = datetime.strptime(timestr, UTC_FORMAT)
+    localtime = utcTime + timedelta(hours=8)
+    return localtime
+
     
