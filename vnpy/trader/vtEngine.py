@@ -815,13 +815,18 @@ class PositionDetail(object):
                 # 上期所等同于平昨
                 if self.exchange is EXCHANGE_SHFE:
                     self.shortYd -= trade.volume
-                # 非上期所，优先平今
+                # 非上期所，优先平今？昨
                 else:
-                    self.shortTd -= trade.volume
-                    
-                    if self.shortTd < 0:
-                        self.shortYd += self.shortTd
-                        self.shortTd = 0    
+                    # self.shortTd -= trade.volume
+                    #
+                    # if self.shortTd < 0:
+                    #     self.shortYd += self.shortTd
+                    #     self.shortTd = 0
+                    self.shortYd -= trade.volume
+
+                    if self.shortYd < 0:
+                        self.shortTd += self.shortYd
+                        self.shortYd = 0
         # 空头
         elif trade.direction is DIRECTION_SHORT:
             # 开仓
@@ -838,13 +843,18 @@ class PositionDetail(object):
                 # 上期所等同于平昨
                 if self.exchange is EXCHANGE_SHFE:
                     self.longYd -= trade.volume
-                # 非上期所，优先平今
+                # 非上期所，优先平今?昨
                 else:
-                    self.longTd -= trade.volume
-                    
-                    if self.longTd < 0:
-                        self.longYd += self.longTd
-                        self.longTd = 0
+                    # self.longTd -= trade.volume
+                    #
+                    # if self.longTd < 0:
+                    #     self.longYd += self.longTd
+                    #     self.longTd = 0
+                    self.longYd -= trade.volume
+
+                    if self.longYd < 0:
+                        self.longTd += self.longYd
+                        self.longYd = 0
                     
         # 汇总
         self.calculatePrice(trade)
