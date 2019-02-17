@@ -721,7 +721,7 @@ class LogEngine(object):
     #----------------------------------------------------------------------
     def warn(self, msg):
         """警告信息"""
-        self.logger.warn(msg)
+        self.logger.warning(msg)
         
     #----------------------------------------------------------------------
     def error(self, msg):
@@ -792,7 +792,7 @@ class PositionDetail(object):
         self.lastPrice = EMPTY_FLOAT
         
         self.mode = self.MODE_NORMAL
-        self.exchange = EMPTY_STRING
+        # self.exchange = EMPTY_STRING
         
         self.workingOrderDict = {}
         
