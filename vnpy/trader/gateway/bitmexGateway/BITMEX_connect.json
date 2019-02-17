@@ -1,6 +1,7 @@
 {
-	"apiKey": "",
-	"apiSecret": "",
-	"sessionCount": 3,
-	"symbols": ["XBTUSD", "EOSM18", "XRPM18"]
+	"apiKey": "Kcvz27zrXhGqG1j05SezhPb5",
+	"apiSecret": "1depsaEnDuLqPg0WZ_26izmYd5KSjoV8cHiyYPyDVpemIZhP",
+	"sessionCount": 4,
+	"symbols": ["XBTUSD","EOSH19"],
+	"testnet": true
 }
