@@ -750,7 +750,7 @@ class LogEngine(object):
 ########################################################################
 class PositionDetail(object):
     """本地维护的持仓信息"""
-    WORKING_STATUS = [STATUS_UNKNOWN, STATUS_NOTTRADED, STATUS_PARTTRADED]
+    WORKING_STATUS = {STATUS_UNKNOWN, STATUS_NOTTRADED, STATUS_PARTTRADED}
     
     MODE_NORMAL = 'normal'          # 普通模式
     MODE_SHFE = 'shfe'              # 上期所今昨分别平仓
