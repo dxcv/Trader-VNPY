@@ -954,6 +954,7 @@ class PositionDetail(object):
         self.shortPos = self.shortTd + self.shortYd      
         
     #----------------------------------------------------------------------
+
     def calculateFrozen(self):
         """计算冻结情况"""
         # 清空冻结数据
@@ -979,11 +980,17 @@ class PositionDetail(object):
                     self.shortYdFrozen += frozenVolume
                 # 平仓
                 elif order.offset is OFFSET_CLOSE:
-                    self.shortTdFrozen += frozenVolume
+                    # self.shortTdFrozen += frozenVolume
                     
-                    if self.shortTdFrozen > self.shortTd:
-                        self.shortYdFrozen += (self.shortTdFrozen - self.shortTd)
-                        self.shortTdFrozen = self.shortTd
+                    # if self.shortTdFrozen > self.shortTd:
+                    #     self.shortYdFrozen += (self.shortTdFrozen - self.shortTd)
+                    #     self.shortTdFrozen = self.shortTd
+                    self.shortYdFrozen += frozenVolume
+                    if self.shortYdFrozen > self.shortYd:
+                        self.shortTdFrozen += (self.shortYdFrozen - self.shortYd)
+                        self.shortYdFrozen = self.shortYd
+
+
             # 空头委托
             elif order.direction is DIRECTION_SHORT:
                 # 平今
@@ -994,11 +1001,17 @@ class PositionDetail(object):
                     self.longYdFrozen += frozenVolume
                 # 平仓
                 elif order.offset is OFFSET_CLOSE:
-                    self.longTdFrozen += frozenVolume
+                    # self.longTdFrozen += frozenVolume
                     
-                    if self.longTdFrozen > self.longTd:
-                        self.longYdFrozen += (self.longTdFrozen - self.longTd)
-                        self.longTdFrozen = self.longTd
+                    # if self.longTdFrozen > self.longTd:
+                    #     self.longYdFrozen += (self.longTdFrozen - self.longTd)
+                    #     self.longTdFrozen = self.longTd
+                                        # self.longTdFrozen += frozenVolume
+                    
+                    self.longYdFrozen += frozenVolume
+                    if self.longYdFrozen > self.longYd:
+                        self.longTdFrozen += (self.longYdFrozen - self.longYd)
+                        self.longYdFrozen = self.longYd
                         
             # 汇总今昨冻结
             self.longPosFrozen = self.longYdFrozen + self.longTdFrozen
