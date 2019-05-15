@@ -30,7 +30,7 @@ except ImportError:
 from vnpy.trader.vtGlobal import globalSetting
 from vnpy.trader.vtObject import VtTickData, VtBarData
 from vnpy.trader.vtConstant import *
-from vnpy.trader.vtGateway import VtOrderData, VtTradeData
+from vnpy.trader.vtObject import VtOrderData, VtTradeData
 
 from .ctaBase import *
 
