@@ -8,7 +8,7 @@ import hmac
 import json
 import ssl
 import traceback
-import urllib
+from urllib import parse
 import zlib
 from copy import copy
 from datetime import datetime
@@ -46,7 +46,7 @@ DEFAULT_POST_HEADERS = {
 def createSign(params, method, host, path, secretKey):
     """创建签名"""
     sortedParams = sorted(params.items(), key=lambda d: d[0], reverse=False)
-    encodeParams = urllib.urlencode(sortedParams)
+    encodeParams = parse.urlencode(sortedParams)
     
     payload = [method, host, path, encodeParams]
     payload = '\n'.join(payload)
@@ -121,7 +121,7 @@ class TradeApi(object):
     def httpGet(self, url, params):
         """HTTP GET"""        
         headers = copy(DEFAULT_GET_HEADERS)
-        postdata = urllib.urlencode(params)
+        postdata = parse.urlencode(params)
         
         try:
             response = requests.get(url, postdata, headers=headers, timeout=TIMEOUT)
@@ -161,31 +161,32 @@ class TradeApi(object):
         return d
         
     #----------------------------------------------------------------------
-    def apiGet(self, path, params):
+    def apiGet(self, path, params, verify=False):
         """API GET"""
         method = 'GET'
-        
-        params.update(self.generateSignParams())
-        params['Signature'] = createSign(params, method, self.hostname, path, self.secretKey)
-        
+
         url = self.hosturl + path
-        
+
+        if verify:
+            params.update(self.generateSignParams())
+            params['Signature'] = createSign(params, method, self.hostname, path, self.secretKey)
+
         return self.httpGet(url, params)
     
     #----------------------------------------------------------------------
-    def apiPost(self, path, params):
+    def apiPost(self, path, params, verify=True):
         """API POST"""
         method = 'POST'
         
         signParams = self.generateSignParams()
         signParams['Signature'] = createSign(signParams, method, self.hostname, path, self.secretKey)
         
-        url = self.hosturl + path + '?' + urllib.urlencode(signParams)
+        url = self.hosturl + path + '?' + parse.urlencode(signParams)
 
         return self.httpPost(url, params)
     
     #----------------------------------------------------------------------
-    def addReq(self, path, params, func, callback):
+    def addReq(self, path, params, func, callback, verify=True):
         """添加请求"""       
         # 异步模式
         if self.mode == self.ASYNC_MODE:
@@ -195,7 +196,7 @@ class TradeApi(object):
             return self.reqid
         # 同步模式
         else:
-            return func(path, params)
+            return func(path, params, verify)
     
     #----------------------------------------------------------------------
     def processReq(self, req):
@@ -236,8 +237,9 @@ class TradeApi(object):
         params = {}
         func = self.apiGet
         callback = self.onGetSymbols
+        verify = False
         
-        return self.addReq(path, params, func, callback)
+        return self.addReq(path, params, func, callback, verify)
     
     #----------------------------------------------------------------------
     def getCurrencys(self):
@@ -250,8 +252,9 @@ class TradeApi(object):
         params = {}
         func = self.apiGet
         callback = self.onGetCurrencys
+        verify = False
         
-        return self.addReq(path, params, func, callback)   
+        return self.addReq(path, params, func, callback, verify)
     
     #----------------------------------------------------------------------
     def getTimestamp(self):
@@ -260,8 +263,9 @@ class TradeApi(object):
         params = {}
         func = self.apiGet
         callback = self.onGetTimestamp
+        verify = False
         
-        return self.addReq(path, params, func, callback) 
+        return self.addReq(path, params, func, callback, verify)
     
     #----------------------------------------------------------------------
     def getAccounts(self):
@@ -270,8 +274,9 @@ class TradeApi(object):
         params = {}
         func = self.apiGet
         callback = self.onGetAccounts
+        verify = True
     
-        return self.addReq(path, params, func, callback)         
+        return self.addReq(path, params, func, callback, verify)
     
     #----------------------------------------------------------------------
     def getAccountBalance(self, accountid):
@@ -284,8 +289,9 @@ class TradeApi(object):
         params = {}
         func = self.apiGet
         callback = self.onGetAccountBalance
+        verify = True
     
-        return self.addReq(path, params, func, callback) 
+        return self.addReq(path, params, func, callback, verify)
     
     #----------------------------------------------------------------------
     def getOrders(self, symbol, states, types=None, startDate=None, 
@@ -313,8 +319,9 @@ class TradeApi(object):
     
         func = self.apiGet
         callback = self.onGetOrders
+        verify = True
     
-        return self.addReq(path, params, func, callback)     
+        return self.addReq(path, params, func, callback, verify)
     
     #----------------------------------------------------------------------
     def getMatchResults(self, symbol, types=None, startDate=None, 
@@ -341,8 +348,9 @@ class TradeApi(object):
 
         func = self.apiGet
         callback = self.onGetMatchResults
+        verify = True
 
-        return self.addReq(path, params, func, callback)   
+        return self.addReq(path, params, func, callback, verify)
     
     #----------------------------------------------------------------------
     def getOrder(self, orderid):
@@ -353,8 +361,9 @@ class TradeApi(object):
     
         func = self.apiGet
         callback = self.onGetOrder
+        verify = True
     
-        return self.addReq(path, params, func, callback)             
+        return self.addReq(path, params, func, callback, verify)
     
     #----------------------------------------------------------------------
     def getMatchResult(self, orderid):
@@ -365,8 +374,9 @@ class TradeApi(object):
     
         func = self.apiGet
         callback = self.onGetMatchResult
+        verify = True
     
-        return self.addReq(path, params, func, callback)     
+        return self.addReq(path, params, func, callback,verify)
     
     #----------------------------------------------------------------------
     def placeOrder(self, accountid, amount, symbol, type_, price=None, source=None):
@@ -390,8 +400,9 @@ class TradeApi(object):
 
         func = self.apiPost
         callback = self.onPlaceOrder
+        verify = True
 
-        return self.addReq(path, params, func, callback)           
+        return self.addReq(path, params, func, callback,verify)
     
     #----------------------------------------------------------------------
     def cancelOrder(self, orderid):
@@ -402,8 +413,9 @@ class TradeApi(object):
         
         func = self.apiPost
         callback = self.onCancelOrder
+        verify = True
 
-        return self.addReq(path, params, func, callback)          
+        return self.addReq(path, params, func, callback, verify)
     
     #----------------------------------------------------------------------
     def batchCancel(self, orderids):
@@ -416,8 +428,9 @@ class TradeApi(object):
     
         func = self.apiPost
         callback = self.onBatchCancel
+        verify = True
     
-        return self.addReq(path, params, func, callback)     
+        return self.addReq(path, params, func, callback, verify)
         
     #----------------------------------------------------------------------
     def onError(self, msg, reqid):
