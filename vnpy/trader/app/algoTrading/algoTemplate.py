@@ -7,7 +7,7 @@ from vnpy.trader.vtConstant import STATUS_NOTTRADED, STATUS_PARTTRADED, STATUS_U
 
 
 # 活动委托状态
-STATUS_ACTIVE = [STATUS_NOTTRADED, STATUS_PARTTRADED, STATUS_UNKNOWN]
+STATUS_ACTIVE = {STATUS_NOTTRADED, STATUS_PARTTRADED, STATUS_UNKNOWN}
 
 
 ########################################################################
