@@ -11,7 +11,7 @@ import hashlib
 import hmac
 import json
 import re
-import urllib
+from urllib import parse
 import zlib
 from copy import copy
 from datetime import datetime
@@ -65,7 +65,7 @@ def createSignature(apiKey, method, host, path, secretKey, getParams=None):
     if getParams:
         sortedParams.extend(getParams.items())
         sortedParams = list(sorted(sortedParams))
-    encodeParams = urllib.urlencode(sortedParams)
+    encodeParams = parse.urlencode(sortedParams)
     
     payload = [method, host, path, encodeParams]
     payload = '\n'.join(payload)
