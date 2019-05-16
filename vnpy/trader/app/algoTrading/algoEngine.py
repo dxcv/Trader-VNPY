@@ -9,7 +9,7 @@ import os
 import importlib
 
 from vnpy.event import Event
-from vnpy.rpc import RpcServer
+# from vnpy.rpc import RpcServer
 from vnpy.trader.vtEvent import EVENT_TIMER, EVENT_TICK, EVENT_ORDER, EVENT_TRADE
 from vnpy.trader.vtConstant import (DIRECTION_LONG, DIRECTION_SHORT, 
                                     PRICETYPE_LIMITPRICE, PRICETYPE_MARKETPRICE,
@@ -348,19 +348,19 @@ class AlgoEngine(object):
 
 
 ########################################################################
-class AlgoRpcServer(RpcServer):
-    """算法交易RPC服务器"""
-    
-    #----------------------------------------------------------------------
-    def __init__(self, engine, repPort, pubPort):
-        """Constructor"""
-        self.engine = engine
-        repAddress = 'tcp://*:%s' %repPort
-        pubAddress = 'tcp://*:%s' %pubPort
-        
-        super(AlgoRpcServer, self).__init__(repAddress, pubAddress)
-        
-        self.register(self.engine.addAlgo)
-        self.register(self.engine.stopAlgo)
-        self.register(self.engine.stopAll)
+# class AlgoRpcServer(RpcServer):
+#     """算法交易RPC服务器"""
+#
+#     #----------------------------------------------------------------------
+#     def __init__(self, engine, repPort, pubPort):
+#         """Constructor"""
+#         self.engine = engine
+#         repAddress = 'tcp://*:%s' %repPort
+#         pubAddress = 'tcp://*:%s' %pubPort
+#
+#         super(AlgoRpcServer, self).__init__(repAddress, pubAddress)
+#
+#         self.register(self.engine.addAlgo)
+#         self.register(self.engine.stopAlgo)
+#         self.register(self.engine.stopAll)
     

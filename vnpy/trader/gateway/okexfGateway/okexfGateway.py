@@ -19,7 +19,7 @@ import zlib
 from datetime import datetime, timedelta
 from copy import copy
 from math import pow
-from urllib import urlencode
+from urllib.parse import urlencode
 
 from requests import ConnectionError
 

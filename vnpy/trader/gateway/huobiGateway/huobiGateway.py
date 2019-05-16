@@ -66,7 +66,7 @@ def createSignature(apiKey, method, host, path, secretKey, getParams=None):
         sortedParams.extend(getParams.items())
         sortedParams = list(sorted(sortedParams))
     encodeParams = parse.urlencode(sortedParams)
-    
+
     payload = [method, host, path, encodeParams]
     payload = '\n'.join(payload)
     payload = payload.encode(encoding='UTF8')

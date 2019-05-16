@@ -7,7 +7,7 @@ except NameError:  # Python 3
     from importlib import reload
 import sys
 reload(sys)
-sys.setdefaultencoding('utf8')
+# sys.setdefaultencoding('utf8')
 
 # vn.trader模块
 from vnpy.event import EventEngine
@@ -15,11 +15,7 @@ from vnpy.trader.vtEngine import MainEngine
 from vnpy.trader.uiQt import createQApp
 
 # 加载底层接口
-from vnpy.trader.gateway import (huobiGateway, okexGateway, okexfGateway,
-                                 binanceGateway, bitfinexGateway,
-                                 bitmexGateway, fcoinGateway,
-                                 bigoneGateway, lbankGateway,
-                                 coinbaseGateway, ccxtGateway)
+from vnpy.trader.gateway import (huobiGateway, okexGateway, okexfGateway,bitmexGateway)
 
 # 加载上层应用
 from vnpy.trader.app import (algoTrading)
@@ -41,17 +37,11 @@ def main():
 
     # 添加交易接口
     me.addGateway(okexfGateway)
-    me.addGateway(ccxtGateway)
-    me.addGateway(coinbaseGateway)
-    me.addGateway(lbankGateway)
-    me.addGateway(bigoneGateway)
-    me.addGateway(fcoinGateway)
+
     me.addGateway(bitmexGateway)
     me.addGateway(huobiGateway)
     me.addGateway(okexGateway)
-    me.addGateway(binanceGateway)
-    me.addGateway(bitfinexGateway)
-    
+
     # 添加上层应用
     me.addApp(algoTrading)
     
