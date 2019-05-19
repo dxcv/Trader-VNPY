@@ -75,6 +75,7 @@ def createSignature(apiKey, method, host, path, secretKey, getParams=None):
     
     digest = hmac.new(secretKey, payload, digestmod=hashlib.sha256).digest()
     signature = base64.b64encode(digest)
+    signature = signature.decode()
     
     params = dict(sortedParams)
     params["Signature"] = signature
@@ -99,7 +100,7 @@ class HuobiGateway(VtGateway):
 
         self.restApi = HuobiRestApi(self)                   
         self.tradeWsApi = HuobiTradeWebsocketApi(self)      
-        self.marketWsApi = HuobiMarketWebsocketApi(self)    
+        self.marketWsApi = HuobiMarketWebsocketApi(self)
 
         self.qryEnabled = False         # 是否要启动循环查询
 
@@ -137,7 +138,7 @@ class HuobiGateway(VtGateway):
         self.marketWsApi.connect(symbols, accessKey, secretKey)
 
         # 初始化并启动查询
-        #self.initQuery()
+        self.initQuery()
 
     #----------------------------------------------------------------------
     def subscribe(self, subscribeReq):
@@ -591,7 +592,11 @@ class HuobiWebsocketApiBase(WebsocketClient):
         if 'ping' in packet:
             self.sendPacket({'pong': packet['ping']})
             return
-        
+
+        if "op" in packet and packet["op"] == "ping":
+            self.sendPacket({'op': 'pong', 'ts': packet['ts']})
+            return
+
         if 'err-msg' in packet:
             return self.onErrorMsg(packet)
         
@@ -830,7 +835,7 @@ class HuobiMarketWebsocketApi(HuobiWebsocketApiBase):
             elif 'detail' in packet['ch']:
                 self.onMarketDetail(packet)
         elif 'err-code' in packet:
-            self.gateway.writeLog(u'错误代码：%s, 信息：%s' %(data['err-code'], data['err-msg']))
+            self.gateway.writeLog(u'错误代码：%s, 信息：%s' %(packet['err-code'], packet['err-msg']))
         
     #----------------------------------------------------------------------
     def onMarketDepth(self, data):
