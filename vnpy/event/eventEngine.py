@@ -15,7 +15,7 @@ from .eventType import *
 
 
 ########################################################################
-class EventEngine(object):
+class EventEngine2(object):
     """
     事件驱动引擎
     事件驱动引擎中所有的变量都设置为了私有，这是为了防止不小心
@@ -181,7 +181,7 @@ class EventEngine(object):
 
 
 ########################################################################
-class EventEngine2(object):
+class EventEngine(object):
     """
     计时器使用python线程的事件驱动引擎        
     """

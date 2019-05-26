@@ -1,7 +1,7 @@
 # encoding: UTF-8
 
 '''
-火币交易接口
+火币合约交易接口
 '''
 
 from __future__ import print_function
@@ -9,31 +9,32 @@ from __future__ import print_function
 import base64
 import hashlib
 import hmac
-import json
 import re
-from urllib import parse
 import zlib
 from copy import copy
 from threading import Lock
-from datetime import datetime
+from urllib import parse
+
 import requests
 
 from vnpy.api.rest import Request, RestClient
 from vnpy.api.websocket import WebsocketClient
+from vnpy.trader.language import *
+from vnpy.trader.vtFunction import getJsonPath
 from vnpy.trader.vtGateway import *
-from vnpy.trader.vtFunction import getTempPath, getJsonPath
 
 REST_HOST = 'https://api.hbdm.com'
 WEBSOCKET_MARKET_HOST = 'wss://www.hbdm.com/ws'  # 行情
 WEBSOCKET_TRADE_HOST = 'wss://api.hbdm.com/notification'  # 资金和委托
 
 # 委托状态类型映射
-statusMapReverse = {}
-statusMapReverse[3] = STATUS_NOTTRADED
-statusMapReverse[4] = STATUS_PARTTRADED
-statusMapReverse[5] = STATUS_CANCELLED
-statusMapReverse[6] = STATUS_ALLTRADED
-statusMapReverse[7] = STATUS_CANCELLED
+statusMapReverse = {
+    3: STATUS_NOTTRADED,
+    4: STATUS_PARTTRADED,
+    5: STATUS_CANCELLED,
+    6: STATUS_ALLTRADED,
+    7: STATUS_CANCELLED
+}
 
 ORDERTYPE_VT2HBDM = {
     PRICETYPE_MARKETPRICE: "opponent",
@@ -74,7 +75,7 @@ HISTORY_INTERVEL = {
 
 symbol_type_map = {}
 
-# ----------------------------------------------------------------------
+
 def _split_url(url):
     """
     将url拆分为host和path
@@ -185,7 +186,7 @@ class HbdmGateway(VtGateway):
         """发单"""
         return self.restApi.sendOrder(orderReq)
 
-    def sendOrders(self,orderReqs):
+    def sendOrders(self, orderReqs):
         return self.restApi.send_orders(orderReqs)
 
     # ----------------------------------------------------------------------
@@ -201,9 +202,9 @@ class HbdmGateway(VtGateway):
         """"""
         self.restApi.queryPosition()
 
-    def query_history(self, req):
-        """"""
-        return self.restApi.query_history(req)
+    # def query_history(self, req):
+    #     """"""
+    #     return self.restApi.query_history(req)
 
     # ----------------------------------------------------------------------
     def close(self):
@@ -320,9 +321,9 @@ class HbdmRestApi(RestClient):
 
     def queryPosition(self):
         """"""
-        self.addRequest(method="POST",path="/api/v1/contract_position_info",callback=self.onQueryPosition)
+        self.addRequest(method="POST", path="/api/v1/contract_position_info", callback=self.onQueryPosition)
 
-   # ----------------------------------------------------------------------
+    # ----------------------------------------------------------------------
     def queryOrder(self):
         """"""
         for symbol in self.symbols:
@@ -371,7 +372,7 @@ class HbdmRestApi(RestClient):
                 data=data,
                 extra=currency
             )
-    # ----------------------------------------------------------------------
+
     def queryContract(self):
         """"""
         self.addRequest(
@@ -440,10 +441,10 @@ class HbdmRestApi(RestClient):
     #
     #     return history
 
-    def request(self,method,path,params):
+    def request(self, method, path, params):
         url = self.signHost + path
         if method == 'GET':
-            ret = requests.get(url,params=params)
+            ret = requests.get(url, params=params)
             return ret
 
     # ----------------------------------------------------------------------
@@ -460,7 +461,7 @@ class HbdmRestApi(RestClient):
         order = VtOrderData()
         order.orderID = local_orderid
         order.gatewayName = self.gatewayName
-        order.vtOrderID = '.'.join([order.gatewayName,order.orderID])
+        order.vtOrderID = '.'.join([order.gatewayName, order.orderID])
 
         direction = DIRECTION_VT2HBDM[orderReq.direction]
         offset = OFFSET_VT2HBDM[orderReq.offset]
@@ -531,8 +532,8 @@ class HbdmRestApi(RestClient):
             callback=self.on_send_orders,
             data=data,
             extra=orders,
-            on_error=self.on_send_orders_error,
-            on_failed=self.on_send_orders_failed
+            onError=self.on_send_orders_error,
+            onFailed=self.on_send_orders_failed
         )
         return vt_orderids
 
@@ -557,7 +558,7 @@ class HbdmRestApi(RestClient):
             method="POST",
             path="/api/v1/contract_cancel",
             callback=self.onCancelOrder,
-            on_failed=self.on_cancel_order_failed,
+            onFailed=self.on_cancel_order_failed,
             data=data,
             extra=cancelReq
         )
@@ -577,7 +578,7 @@ class HbdmRestApi(RestClient):
 
             self.gateway.onAccount(account)
 
-    def onQueryPosition(self,data,request):
+    def onQueryPosition(self, data, request):
         if self.check_error(data, "查询持仓"):
             return
 
@@ -596,8 +597,8 @@ class HbdmRestApi(RestClient):
                 position = VtPositionData()
                 position.symbol = d["contract_code"]
                 position.exchange = EXCHANGE_HBDM
-                position.direction= DIRECTION_HBDM2VT[d["direction"]],
-                position.gateway_name=self.gateway_name
+                position.direction = DIRECTION_HBDM2VT[d["direction"]],
+                position.gateway_name = self.gateway_name
 
                 self.positions[key] = position
 
@@ -609,7 +610,7 @@ class HbdmRestApi(RestClient):
         for position in self.positions.values():
             self.gateway.onPosition(position)
 
-    def on_query_active_order(self,data,request):
+    def on_query_active_order(self, data, request):
         if self.check_error(data, "查询活动委托"):
             return
 
@@ -641,7 +642,7 @@ class HbdmRestApi(RestClient):
 
         self.gateway.writeLog(f"{request.extra}活动委托信息查询成功")
 
-    def on_query_history_order(self,data,request):
+    def on_query_history_order(self, data, request):
         if self.check_error(data, "查询历史委托"):
             return
         for d in data["data"]["orders"]:
@@ -742,7 +743,7 @@ class HbdmRestApi(RestClient):
         self.gateway.writeLog(msg)
 
     def on_send_order_error(
-        self, exception_type: type, exception_value: Exception, tb, request: Request
+            self, exception_type: type, exception_value: Exception, tb, request: Request
     ):
         """
         Callback when sending order caused exception.
@@ -754,7 +755,6 @@ class HbdmRestApi(RestClient):
         # Record exception if not ConnectionError
         if not issubclass(exception_type, ConnectionError):
             self.onError(exception_type, exception_value, tb, request)
-
 
     def onCancelOrder(self, data, request):  # type: (dict, Request)->None
         """"""
@@ -814,7 +814,6 @@ class HbdmRestApi(RestClient):
         # Record exception if not ConnectionError
         if not issubclass(exception_type, ConnectionError):
             self.onError(exception_type, exception_value, tb, request)
-
 
     def check_error(self, data, func: str = ''):
         if data['status'] != 'error':
@@ -932,15 +931,15 @@ class HbdmTradeWebsocketApi(HbdmWebsocketApiBase):
         # self.orderDict = gateway.orderDict
         # self.orderLocalDict = gateway.orderLocalDict
         # self.localOrderDict = gateway.localOrderDict
+
     # ----------------------------------------------------------------------
     def connect(self, symbols, apiKey, apiSecret):
-
 
         self.symbols = symbols
 
         super(HbdmTradeWebsocketApi, self).connect(apiKey,
-                                                    apiSecret,
-                                                    WEBSOCKET_TRADE_HOST)
+                                                   apiSecret,
+                                                   WEBSOCKET_TRADE_HOST)
 
     # ----------------------------------------------------------------------
     def subscribeTopic(self):
@@ -989,7 +988,6 @@ class HbdmTradeWebsocketApi(HbdmWebsocketApiBase):
             orderID = data["client_order_id"]
         else:
             orderID = data["order_id"]
-
 
         order = VtOrderData()
         order.symbol = data["contract_code"]
@@ -1043,8 +1041,8 @@ class HbdmMarketWebsocketApi(HbdmWebsocketApiBase):
         self.symbols = symbols
 
         super(HbdmMarketWebsocketApi, self).connect(apiKey,
-                                                     apiSecret,
-                                                     WEBSOCKET_MARKET_HOST)
+                                                    apiSecret,
+                                                    WEBSOCKET_MARKET_HOST)
 
     # ----------------------------------------------------------------------
     def onConnected(self):
@@ -1144,4 +1142,3 @@ class HbdmMarketWebsocketApi(HbdmWebsocketApiBase):
         if tick.bidPrice1:
             newtick = copy(tick)
             self.gateway.onTick(newtick)
-

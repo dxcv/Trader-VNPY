@@ -132,7 +132,7 @@ class RestClient(object):
                    params=None,     # type: dict
                    data=None,       # type: dict
                    headers=None,    # type: dict
-                   onFailed=None,   # type: Callable[[int, Request], Any]
+                   onFailed=None,   # type: Callable[[Any, Request], Any]
                    onError=None,    # type: Callable[[type, Exception, traceback, Request], Any]
                    extra=None       # type: Any
                    ):               # type: (...)->Request
