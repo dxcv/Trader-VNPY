@@ -14,7 +14,9 @@ import re
 from urllib import parse
 import zlib
 from copy import copy
+from threading import Lock
 from datetime import datetime
+import requests
 
 from vnpy.api.rest import Request, RestClient
 from vnpy.api.websocket import WebsocketClient
@@ -27,19 +29,47 @@ WEBSOCKET_TRADE_HOST = 'wss://api.hbdm.com/notification'  # 资金和委托
 
 # 委托状态类型映射
 statusMapReverse = {}
-statusMapReverse['pre-submitted'] = STATUS_UNKNOWN
-statusMapReverse['submitting'] = STATUS_UNKNOWN
-statusMapReverse['submitted'] = STATUS_NOTTRADED
-statusMapReverse['partial-filled'] = STATUS_PARTTRADED
-statusMapReverse['partial-canceled'] = STATUS_CANCELLED
-statusMapReverse['filled'] = STATUS_ALLTRADED
-statusMapReverse['canceled'] = STATUS_CANCELLED
+statusMapReverse[3] = STATUS_NOTTRADED
+statusMapReverse[4] = STATUS_PARTTRADED
+statusMapReverse[5] = STATUS_CANCELLED
+statusMapReverse[6] = STATUS_ALLTRADED
+statusMapReverse[7] = STATUS_CANCELLED
 
+ORDERTYPE_VT2HBDM = {
+    PRICETYPE_MARKETPRICE: "opponent",
+    PRICETYPE_LIMITPRICE: "limit",
+}
+ORDERTYPE_HBDM2VT = {v: k for k, v in ORDERTYPE_VT2HBDM.items()}
+ORDERTYPE_HBDM2VT['1'] = PRICETYPE_LIMITPRICE
+ORDERTYPE_HBDM2VT['3'] = PRICETYPE_MARKETPRICE
+
+ORDERTYPE_VT2HBDM = {v: k for k, v in ORDERTYPE_VT2HBDM.items()}
+
+DIRECTION_VT2HBDM = {
+    DIRECTION_LONG: 'bull',
+    DIRECTION_SHORT: 'sell'
+}
+
+DIRECTION_HBDM2VT = {v: k for k, v in DIRECTION_VT2HBDM.items()}
+
+OFFSET_VT2HBDM = {
+    OFFSET_OPEN: 'open',
+    OFFSET_CLOSE: 'close'
+}
+
+OFFSET_HBDM2VT = {v: k for k, v in OFFSET_VT2HBDM.items()}
 
 CONTRACT_TYPE_MAP = {
     "this_week": "CW",
     "next_week": "NW",
     "this_quarter": "CQ"
+}
+
+HISTORY_INTERVEL = {
+    'MINUTE': '1min',
+    'HOUR': '60min',
+    'DAILY': '1day'
+
 }
 
 symbol_type_map = {}
@@ -69,7 +99,7 @@ def createSignature(apiKey, method, host, path, secretKey, getParams=None):
         ("Timestamp", datetime.utcnow().strftime('%Y-%m-%dT%H:%M:%S'))
     ]
     if getParams:
-        sortedParams.extend(getParams.items())
+        sortedParams.extend(list(getParams.items()))
         sortedParams = list(sorted(sortedParams))
     encodeParams = parse.urlencode(sortedParams)
 
@@ -93,20 +123,19 @@ class HbdmGateway(VtGateway):
     """火币接口"""
 
     # ----------------------------------------------------------------------
-    def __init__(self, eventEngine, gatewayName='HUOBI'):
+    def __init__(self, eventEngine, gatewayName='HBDM'):
         """Constructor"""
         super(HbdmGateway, self).__init__(eventEngine, gatewayName)
 
-        self.localID = 10000
+        self.order_count = 0
 
-        self.accountDict = {}
         self.orderDict = {}
-        self.localOrderDict = {}
-        self.orderLocalDict = {}
+        # self.localOrderDict = {}
+        # self.orderLocalDict = {}
 
         self.restApi = HbdmRestApi(self)
         self.tradeWsApi = HbdmTradeWebsocketApi(self)
-        self.marketWsApi = HbdmDataWebsocketApi(self)
+        self.marketWsApi = HbdmMarketWebsocketApi(self)
 
         self.qryEnabled = False  # 是否要启动循环查询
 
@@ -156,10 +185,25 @@ class HbdmGateway(VtGateway):
         """发单"""
         return self.restApi.sendOrder(orderReq)
 
+    def sendOrders(self,orderReqs):
+        return self.restApi.send_orders(orderReqs)
+
     # ----------------------------------------------------------------------
     def cancelOrder(self, cancelOrderReq):
         """撤单"""
         self.restApi.cancelOrder(cancelOrderReq)
+
+    def query_account(self):
+        """"""
+        self.restApi.queryAccount()
+
+    def query_position(self):
+        """"""
+        self.restApi.queryPosition()
+
+    def query_history(self, req):
+        """"""
+        return self.restApi.query_history(req)
 
     # ----------------------------------------------------------------------
     def close(self):
@@ -170,34 +214,18 @@ class HbdmGateway(VtGateway):
 
     # ----------------------------------------------------------------------
     def initQuery(self):
-        """初始化连续查询"""
         if self.qryEnabled:
-            # 需要循环的查询函数列表
-            self.qryFunctionList = [self.qryInfo]
-
-            self.qryCount = 0  # 查询触发倒计时
-            self.qryTrigger = 1  # 查询触发点
-            self.qryNextFunction = 0  # 上次运行的查询函数索引
-
-            self.startQuery()
+            self.count = 0
+            self.eventEngine.register(EVENT_TIMER, self.query)
 
     # ----------------------------------------------------------------------
     def query(self, event):
         """注册到事件处理引擎上的查询函数"""
-        self.qryCount += 1
-
-        if self.qryCount > self.qryTrigger:
-            # 清空倒计时
-            self.qryCount = 0
-
-            # 执行查询函数
-            function = self.qryFunctionList[self.qryNextFunction]
-            function()
-
-            # 计算下次查询函数的索引，如果超过了列表长度，则重新设为0
-            self.qryNextFunction += 1
-            if self.qryNextFunction == len(self.qryFunctionList):
-                self.qryNextFunction = 0
+        self.count += 1
+        if self.count < 3:
+            return
+        self.query_account()
+        self.query_position()
 
     # ----------------------------------------------------------------------
     def startQuery(self):
@@ -237,14 +265,14 @@ class HbdmRestApi(RestClient):
         self.apiSecret = ""
         self.signHost = ""
 
-        self.accountDict = gateway.accountDict
-        self.orderDict = gateway.orderDict
-        self.orderLocalDict = gateway.orderLocalDict
-        self.localOrderDict = gateway.localOrderDict
-
         self.accountid = ''  #
-        self.cancelReqDict = {}
-        self.orderBufDict = {}
+
+        self.order_count_lock = Lock()
+        self.order_count = 10000
+        self.connect_time = 0
+
+        self.orderDict = gateway.orderDict
+        self.positions = {}
 
     # ----------------------------------------------------------------------
     def sign(self, request):
@@ -275,10 +303,13 @@ class HbdmRestApi(RestClient):
         self.apiSecret = apiSecret
 
         host, path = _split_url(REST_HOST)
+        self.connect_time = int(datetime.now().strftime("%y%m%d%H%M%S"))
         self.init(REST_HOST)
 
         self.signHost = host
         self.start(sessionCount)
+
+        self.gateway.writeLog("hbdm REST API启动成功")
 
         self.queryContract()
 
@@ -287,266 +318,522 @@ class HbdmRestApi(RestClient):
         """"""
         self.addRequest('GET', '/v1/account/accounts', self.onQueryAccount)
 
-    # ----------------------------------------------------------------------
-    def queryAccountBalance(self):
+    def queryPosition(self):
         """"""
-        path = '/v1/account/accounts/%s/balance' % self.accountid
-        self.addRequest('GET', path, self.onQueryAccountBalance)
+        self.addRequest(method="POST",path="/api/v1/contract_position_info",callback=self.onQueryPosition)
 
-    # ----------------------------------------------------------------------
+   # ----------------------------------------------------------------------
     def queryOrder(self):
         """"""
-        path = '/v1/order/orders'
-
-        todayDate = datetime.now().strftime('%Y-%m-%d')
-        statesActive = 'submitted,partial-filled'
-
         for symbol in self.symbols:
-            params = {
+            symbol = symbol.split('_')[0]
+            data = {
                 'symbol': symbol,
-                'states': statesActive,
-                'end_date': todayDate
             }
-            self.addRequest('GET', path, self.onQueryOrder, params=params)
+            self.addRequest(
+                method="POST",
+                path="/api/v1/contract_openorders",
+                callback=self.on_query_active_order,
+                data=data,
+                extra=symbol
+            )
+            # History Orders
+            data = {
+                "symbol": symbol,
+                "trade_type": 0,
+                "type": 2,
+                "status": 0,
+                "create_date": 7
+            }
 
+            self.addRequest(
+                method="POST",
+                path="/api/v1/contract_hisorders",
+                callback=self.on_query_history_order,
+                data=data,
+                extra=symbol
+            )
+
+    def queryTrade(self):
+        for currency in self.symbols:
+            currency = currency.split('_')[0]
+
+            data = {
+                "symbol": currency,
+                "trade_type": 0,
+                "create_date": 7
+            }
+
+            self.addRequest(
+                method="POST",
+                path="/api/v1/contract_matchresults",
+                callback=self.on_query_trade,
+                data=data,
+                extra=currency
+            )
     # ----------------------------------------------------------------------
     def queryContract(self):
         """"""
-        self.addRequest('GET', '/v1/common/symbols', self.onQueryContract)
+        self.addRequest(
+            method="GET",
+            path="/api/v1/contract_contract_info",
+            callback=self.onQueryContract
+        )
+
+    # def query_history(self, req):
+    #     """"""
+    #     # Convert symbol
+    #     contract_type = symbol_type_map.get(req.symbol, "")
+    #     buf = [i for i in req.symbol if not i.isdigit()]
+    #     symbol = "".join(buf)
+    #
+    #     ws_contract_type = CONTRACT_TYPE_MAP[contract_type]
+    #     ws_symbol = "{}_{}".format(contract_type,ws_contract_type)
+    #
+    #     # Create query params
+    #     params = {
+    #         "symbol": ws_symbol,
+    #         "period": HISTORY_INTERVEL[req.interval],
+    #         "size": 2000
+    #     }
+    #
+    #     # Get response from server
+    #     resp = self.request(
+    #         "GET",
+    #         "/market/history/kline",
+    #         params=params
+    #     )
+    #
+    #     # Break if request failed with other status code
+    #     history = []
+    #
+    #     if resp.status_code // 100 != 2:
+    #         msg = "获取历史数据失败，状态码：{}，信息：{}".format(resp.status_code,resp.text)
+    #         self.gateway.writeLog(msg)
+    #     else:
+    #         data = resp.json()
+    #         if not data:
+    #             msg = "获取历史数据为空"
+    #             self.gateway.writeLog(msg)
+    #         else:
+    #             for d in data["data"]:
+    #                 dt = datetime.fromtimestamp(d["id"])
+    #
+    #                 bar = VtBarData()
+    #                 bar.symbol = req.symbol
+    #                 bar.exchange = req.exchange,
+    #                 bar.datetime = dt,
+    #                 bar.interval = req.interval,
+    #                 bar.volume=d["vol"],
+    #                 bar.open=d["open"],
+    #                 bar.high=d["high"],
+    #                 bar.low=d["low"],
+    #                 bar.close=d["close"],
+    #                 bar.gatewayName=self.gateway_name
+    #
+    #                 history.append(bar)
+    #
+    #             begin = history[0].datetime
+    #             end = history[-1].datetime
+    #             msg = f"获取历史数据成功，{req.symbol} - {req.interval.value}，{begin} - {end}"
+    #             self.gateway.writeLog(msg)
+    #
+    #     return history
+
+    def request(self,method,path,params):
+        url = self.signHost + path
+        if method == 'GET':
+            ret = requests.get(url,params=params)
+            return ret
 
     # ----------------------------------------------------------------------
+    def new_local_orderid(self):
+        """"""
+        with self.order_count_lock:
+            self.order_count += 1
+            local_orderid = f"{self.connect_time}{self.order_count}"
+            return local_orderid
+
     def sendOrder(self, orderReq):
         """"""
-        self.gateway.localID += 1
-        localID = str(self.gateway.localID)
-        vtOrderID = '.'.join([self.gatewayName, localID])
+        local_orderid = self.new_local_orderid()
+        order = VtOrderData()
+        order.orderID = local_orderid
+        order.gatewayName = self.gatewayName
+        order.vtOrderID = '.'.join([order.gatewayName,order.orderID])
 
-        if orderReq.direction == DIRECTION_LONG:
-            type_ = 'buy-limit'
-        else:
-            type_ = 'sell-limit'
+        direction = DIRECTION_VT2HBDM[orderReq.direction]
+        offset = OFFSET_VT2HBDM[orderReq.offset]
+        priceType = ORDERTYPE_VT2HBDM[orderReq.priceType]
 
-        params = {
-            'account-id': self.accountid,
-            'amount': str(orderReq.volume),
-            'symbol': orderReq.symbol,
-            'type': type_,
+        data = {
+            "contract_code": orderReq.symbol,
+            "client_order_id": int(local_orderid),
             'price': str(orderReq.price),
-            'source': 'api'
+            "volume": int(orderReq.volume),
+            "lever_rate": 20,
+            "direction": direction,
+            "offset": offset,
+            "order_price_type": priceType
         }
 
-        path = '/v1/order/orders/place'
-        self.addRequest('POST', path, self.onSendOrder,
-                        data=params, extra=localID)
-
-        # 缓存委托
-        order = VtOrderData()
-        order.gatewayName = self.gatewayName
-
-        order.orderID = localID
-        order.vtOrderID = '.'.join([order.gatewayName, order.orderID])
-
-        order.symbol = orderReq.symbol
-        order.exchange = EXCHANGE_HUOBI
-        order.vtSymbol = '.'.join([order.symbol, order.exchange])
-
-        order.price = orderReq.price
-        order.totalVolume = orderReq.volume
-        order.direction = orderReq.direction
-        order.offset = OFFSET_NONE
-        order.status = STATUS_UNKNOWN
-
-        self.orderBufDict[localID] = order
-
+        self.addRequest(
+            method="POST",
+            path="/api/v1/contract_order",
+            callback=self.onSendOrder,
+            data=data,
+            extra=orderReq,
+            onError=self.on_send_order_error,
+            onFailed=self.on_send_order_failed
+        )
         # 返回订单号
-        return vtOrderID
+        return order.vtOrderID
+
+    def send_orders(self, reqs):
+        """"""
+        orders_data = []
+        orders = []
+        vt_orderids = []
+
+        for req in reqs:
+            local_orderid = self.new_local_orderid()
+
+            order = VtOrderData()
+            order.orderID = local_orderid
+            order.gatewayName = self.gatewayName
+            order.vtOrderID = '.'.join([order.gatewayName, order.orderID])
+
+            order.orderTime = datetime.now().strftime("%H:%M:%S")
+            self.gateway.onOrder(order)
+
+            d = {
+                "contract_code": req.symbol,
+                "client_order_id": int(local_orderid),
+                "price": req.price,
+                "volume": int(req.volume),
+                "direction": DIRECTION_VT2HBDM.get(req.direction, ""),
+                "offset": OFFSET_VT2HBDM.get(req.offset, ""),
+                "order_price_type": ORDERTYPE_VT2HBDM.get(req.type, ""),
+                "lever_rate": 20
+            }
+
+            orders_data.append(d)
+            orders.append(order)
+            vt_orderids.append(order.vtOrderID)
+
+        data = {
+            "orders_data": orders_data
+        }
+
+        self.addRequest(
+            method="POST",
+            path="/api/v1/contract_batchorder",
+            callback=self.on_send_orders,
+            data=data,
+            extra=orders,
+            on_error=self.on_send_orders_error,
+            on_failed=self.on_send_orders_failed
+        )
+        return vt_orderids
 
     # ----------------------------------------------------------------------
     def cancelOrder(self, cancelReq):
         """"""
-        localID = cancelReq.orderID
-        orderID = self.localOrderDict.get(localID, None)
+        buf = [i for i in cancelReq.symbol if not i.isdigit()]
 
-        if orderID:
-            path = '/v1/order/orders/%s/submitcancel' % orderID
-            self.addRequest('POST', path, self.onCancelOrder)
+        data = {
+            "symbol": "".join(buf),
+        }
 
-            if localID in self.cancelReqDict:
-                del self.cancelReqDict[localID]
-        else:
-            self.cancelReqDict[localID] = cancelReq
+        orderid = int(cancelReq.orderID)
+        # if orderid > 1000000:
+        #     data["client_order_id"] = orderid
+        # else:
+        #     data["order_id"] = orderid
 
-            # ----------------------------------------------------------------------
+        data["client_order_id"] = orderid
+
+        self.addRequest(
+            method="POST",
+            path="/api/v1/contract_cancel",
+            callback=self.onCancelOrder,
+            on_failed=self.on_cancel_order_failed,
+            data=data,
+            extra=cancelReq
+        )
 
     def onQueryAccount(self, data, request):  # type: (dict, Request)->None
-        """"""
-        for d in data['data']:
-            if str(d['type']) == 'spot':
-                self.accountid = str(d['id'])
-                self.gateway.writeLog(u'账户代码%s查询成功' % self.accountid)
 
-        self.queryAccountBalance()
-
-    # ----------------------------------------------------------------------
-    def onQueryAccountBalance(self, data, request):  # type: (dict, Request)->None
         """"""
-        status = data.get('status', None)
-        if status == 'error':
-            msg = u'错误代码：%s, 错误信息：%s' % (data['err-code'], data['err-msg'])
-            self.gateway.writeLog(msg)
+        if self.check_error(data, "查询账户"):
             return
+        for d in data['data']:
+            account = VtAccountData()
 
-        self.gateway.writeLog(u'资金信息查询成功')
+            account.accountID = d['symbol']
+            account.balance = d['margin_balance']
+            account.margin = d['margin_frozen']
+            account.gatewayName = self.gatewayName
 
-        for d in data['data']['list']:
-            currency = d['currency']
-            account = self.accountDict.get(currency, None)
-
-            if not account:
-                account = VtAccountData()
-                account.gatewayName = self.gatewayName
-                account.accountID = d['currency']
-                account.vtAccountID = '.'.join([account.gatewayName, account.accountID])
-
-                self.accountDict[currency] = account
-
-            if d['type'] == 'trade':
-                account.available = float(d['balance'])
-            elif d['type'] == 'frozen':
-                account.margin = float(d['balance'])
-
-            account.balance = account.margin + account.available
-
-        for account in self.accountDict.values():
             self.gateway.onAccount(account)
 
-        self.queryOrder()
-
-    # ----------------------------------------------------------------------
-    def onQueryOrder(self, data, request):  # type: (dict, Request)->None
-        """"""
-        status = data.get('status', None)
-        if status == 'error':
-            msg = u'错误代码：%s, 错误信息：%s' % (data['err-code'], data['err-msg'])
-            self.gateway.writeLog(msg)
+    def onQueryPosition(self,data,request):
+        if self.check_error(data, "查询持仓"):
             return
 
-        symbol = request.params['symbol']
-        self.gateway.writeLog(u'%s委托信息查询成功' % symbol)
+        # Clear all buf data
+        for position in self.positions.values():
+            position.volume = 0
+            position.frozen = 0
+            position.price = 0
+            position.pnl = 0
 
-        data['data'].reverse()
-        for d in data['data']:
-            orderID = d['id']
-            strOrderID = str(orderID)
+        for d in data["data"]:
+            key = f"{d['contract_code']}_{d['direction']}"
+            position = self.positions.get(key, None)
 
-            self.gateway.localID += 1
-            localID = str(self.gateway.localID)
+            if not position:
+                position = VtPositionData()
+                position.symbol = d["contract_code"]
+                position.exchange = EXCHANGE_HBDM
+                position.direction= DIRECTION_HBDM2VT[d["direction"]],
+                position.gateway_name=self.gateway_name
 
-            self.orderLocalDict[strOrderID] = localID
-            self.localOrderDict[localID] = strOrderID
+                self.positions[key] = position
+
+            position.volume = d["volume"]
+            position.frozen = d["frozen"]
+            position.price = d["cost_hold"]
+            position.pnl = d["profit"]
+
+        for position in self.positions.values():
+            self.gateway.onPosition(position)
+
+    def on_query_active_order(self,data,request):
+        if self.check_error(data, "查询活动委托"):
+            return
+
+        for d in data["data"]["orders"]:
+            timestamp = d["created_at"]
+            dt = datetime.fromtimestamp(timestamp / 1000)
+            time = dt.strftime("%H:%M:%S")
+
+            if d["client_order_id"]:
+                orderid = d["client_order_id"]
+            else:
+                orderid = d["order_id"]
 
             order = VtOrderData()
-            order.gatewayName = self.gatewayName
+            order.orderID = orderid
+            order.symbol = d["contract_code"]
+            order.exchange = EXCHANGE_HBDM
+            order.price = d["price"]
+            order.totalVolume = d["volume"]
+            order.tradedVolume = d["trade_volume"]
+            order.priceType = ORDERTYPE_HBDM2VT[d["order_price_type"]]
+            order.direction = DIRECTION_HBDM2VT[d["direction"]]
+            order.offset = OFFSET_HBDM2VT[d["offset"]]
+            order.status = statusMapReverse[d["status"]]
+            order.orderTime = time
+            order.gatewayName = self.gateway_name
 
-            order.orderID = localID
-            order.vtOrderID = '.'.join([order.gatewayName, order.orderID])
-
-            order.symbol = d['symbol']
-            order.exchange = EXCHANGE_HUOBI
-            order.vtSymbol = '.'.join([order.symbol, order.exchange])
-
-            order.price = float(d['price'])
-            order.totalVolume = float(d['amount'])
-            order.tradedVolume = float(d['field-amount'])
-            order.status = statusMapReverse.get(d['state'], STATUS_UNKNOWN)
-
-            if 'buy' in d['type']:
-                order.direction = DIRECTION_LONG
-            else:
-                order.direction = DIRECTION_SHORT
-            order.offset = OFFSET_NONE
-
-            order.orderTime = datetime.fromtimestamp(d['created-at'] / 1000).strftime('%H:%M:%S')
-            if d['canceled-at']:
-                order.cancelTime = datetime.fromtimestamp(d['canceled-at'] / 1000).strftime('%H:%M:%S')
-
-            self.orderDict[strOrderID] = order
             self.gateway.onOrder(order)
+
+        self.gateway.writeLog(f"{request.extra}活动委托信息查询成功")
+
+    def on_query_history_order(self,data,request):
+        if self.check_error(data, "查询历史委托"):
+            return
+        for d in data["data"]["orders"]:
+            timestamp = d["create_date"]
+            dt = datetime.fromtimestamp(timestamp / 1000)
+            time = dt.strftime("%H:%M:%S")
+
+            orderid = d["order_id"]
+
+            order = VtOrderData
+            order.orderID = orderid
+            order.symbol = d["contract_code"]
+            order.exchange = EXCHANGE_HBDM
+            order.price = d["price"]
+            order.totalVolume = d["volume"]
+            order.priceType = ORDERTYPE_HBDM2VT[d["order_price_type"]]
+            order.direction = DIRECTION_HBDM2VT[d["direction"]]
+            order.tradedVolume = d["trade_volume"]
+            order.offset = OFFSET_HBDM2VT[d["offset"]]
+            order.status = statusMapReverse[d["status"]]
+            order.orderTime = time
+            order.gatewayName = self.gateway_name,
+
+            self.gateway.onOrder(order)
+
+        self.gateway.writeLog(f"{request.extra}历史委托信息查询成功")
+
+    def on_query_trade(self, data, request):
+        """"""
+        if self.check_error(data, "查询成交"):
+            return
+
+        for d in data["data"]["trades"]:
+            dt = datetime.fromtimestamp(d["create_date"] / 1000)
+            time = dt.strftime("%H:%M:%S")
+
+            trade = VtTradeData()
+            trade.orderID = d["order_id"]
+            trade.tradeID = d["match_id"]
+            trade.symbol = d["contract_code"]
+            trade.exchange = EXCHANGE_HBDM
+            trade.volume = d["trade_volume"]
+            trade.price = d["trade_price"]
+            trade.direction = DIRECTION_HBDM2VT[d["direction"]]
+            trade.offset = OFFSET_HBDM2VT[d["offset"]]
+            trade.tradeTime = time
+            trade.gatewayName = self.gatewayName
+            self.gateway.onTrade(trade)
+
+        self.gateway.writeLog(f"{request.extra}成交信息查询成功")
 
     # ----------------------------------------------------------------------
     def onQueryContract(self, data, request):  # type: (dict, Request)->None
         """"""
-        status = data.get('status', None)
-        if status == 'error':
-            msg = u'错误代码：%s, 错误信息：%s' % (data['err-code'], data['err-msg'])
-            self.gateway.writeLog(msg)
-            return
 
-        self.gateway.writeLog(u'合约信息查询成功')
+        if self.check_error(data, "查询合约"):
+            return
 
         for d in data['data']:
             contract = VtContractData()
             contract.gatewayName = self.gatewayName
 
-            contract.symbol = d['base-currency'] + d['quote-currency']
-            contract.exchange = EXCHANGE_HUOBI
+            contract.symbol = d["contract_code"]
+            contract.exchange = EXCHANGE_HBDM
             contract.vtSymbol = '.'.join([contract.symbol, contract.exchange])
 
-            contract.name = '/'.join([d['base-currency'].upper(), d['quote-currency'].upper()])
-            contract.priceTick = 1 / pow(10, d['price-precision'])
-            contract.size = 1 / pow(10, d['amount-precision'])
-            contract.productClass = PRODUCT_SPOT
+            contract.name = d["contract_code"]
+            contract.priceTick = d["price_tick"]
+            contract.size = int(d["contract_size"]),
+            contract.productClass = PRODUCT_FUTURES
 
             self.gateway.onContract(contract)
 
-        self.queryAccount()
+            symbol_type_map[contract.symbol] = d['contract_type']
+
+        self.queryOrder()
+        self.queryTrade()
 
         # ----------------------------------------------------------------------
 
     def onSendOrder(self, data, request):  # type: (dict, Request)->None
         """"""
-        localID = request.extra
-        order = self.orderBufDict[localID]
+        order = request.extra
 
-        status = data.get('status', None)
-
-        if status == 'error':
-            msg = u'错误代码：%s, 错误信息：%s' % (data['err-code'], data['err-msg'])
-            self.gateway.writeLog(msg)
-
+        if self.check_error(data, "委托"):
             order.status = STATUS_REJECTED
             self.gateway.onOrder(order)
-            return
 
-        orderID = data['data']
-        strOrderID = str(orderID)
+    def on_send_order_failed(self, status_code, request):
+        """
+        Callback when sending order failed on server.
+        """
+        order = request.extra
+        order.status = STATUS_REJECTED
+        self.gateway.onOrder(order)
 
-        self.localOrderDict[localID] = strOrderID
-        self.orderDict[strOrderID] = order
+        msg = f"委托失败，状态码：{status_code}，信息：{request.response.text}"
+        self.gateway.writeLog(msg)
 
-        req = self.cancelReqDict.get(localID, None)
-        if req:
-            self.cancelOrder(req)
+    def on_send_order_error(
+        self, exception_type: type, exception_value: Exception, tb, request: Request
+    ):
+        """
+        Callback when sending order caused exception.
+        """
+        order = request.extra
+        order.status = STATUS_REJECTED
+        self.gateway.onOrder(order)
 
-    # ----------------------------------------------------------------------
+        # Record exception if not ConnectionError
+        if not issubclass(exception_type, ConnectionError):
+            self.onError(exception_type, exception_value, tb, request)
+
+
     def onCancelOrder(self, data, request):  # type: (dict, Request)->None
         """"""
-        status = data.get('status', None)
-        if status == 'error':
-            msg = u'错误代码：%s, 错误信息：%s' % (data['err-code'], data['err-msg'])
-            self.gateway.writeLog(msg)
-            return
+        if self.check_error(data, "撤单"):
+            self.gateway.writeLog(u'委托撤单成功：%s' % data)
 
-        self.gateway.writeLog(u'委托撤单成功：%s' % data)
+    def on_cancel_order_failed(self, status_code, request):
+        """
+        Callback when canceling order failed on server.
+        """
+        msg = f"撤单失败，状态码：{status_code}，信息：{request.response.text}"
+        self.gateway.writeLog(msg)
+
+    def on_send_orders(self, data, request):
+        """"""
+        orders = request.extra
+
+        errors = data.get("errors", None)
+        if errors:
+            for d in errors:
+                ix = d["index"]
+                code = d["err_code"]
+                msg = d["err_msg"]
+
+                order = orders[ix]
+                order.status = STATUS_REJECTED
+                self.gateway.onOrder(order)
+
+                msg = f"批量委托失败，状态码：{code}，信息：{msg}"
+                self.gateway.writeLog(msg)
+
+    def on_send_orders_failed(self, status_code: str, request: Request):
+        """
+        Callback when sending order failed on server.
+        """
+        orders = request.extra
+
+        for order in orders:
+            order.status = STATUS_REJECTED
+            self.gateway.onOrder(order)
+
+        msg = f"批量委托失败，状态码：{status_code}，信息：{request.response.text}"
+        self.gateway.writeLog(msg)
+
+    def on_send_orders_error(
+            self, exception_type: type, exception_value: Exception, tb, request: Request
+    ):
+        """
+        Callback when sending order caused exception.
+        """
+        orders = request.extra
+
+        for order in orders:
+            order.status = STATUS_REJECTED
+            self.gateway.onOrder(order)
+
+        # Record exception if not ConnectionError
+        if not issubclass(exception_type, ConnectionError):
+            self.onError(exception_type, exception_value, tb, request)
+
+
+    def check_error(self, data, func: str = ''):
+        if data['status'] != 'error':
+            return False
+        error_code = data['err_code']
+        error_msg = data['err_msg']
+
+        self.gateway.writeLog('{0}请求出错，代码：{1}，信息：{2}'.format(func, error_code, error_msg))
+
+        return True
 
 
 ########################################################################
-class HuobiWebsocketApiBase(WebsocketClient):
+class HbdmWebsocketApiBase(WebsocketClient):
 
     # ----------------------------------------------------------------------
     def __init__(self, gateway):
         """Constructor"""
-        super(HuobiWebsocketApiBase, self).__init__()
+        super(HbdmWebsocketApiBase, self).__init__()
 
         self.gateway = gateway
         self.gatewayName = gateway.gatewayName
@@ -555,13 +842,13 @@ class HuobiWebsocketApiBase(WebsocketClient):
         self.apiSecret = ''
         self.signHost = ''
         self.path = ''
+        self.req_id = 0
 
     # ----------------------------------------------------------------------
     def connect(self, apiKey, apiSecret, url):
         """"""
         self.apiKey = apiKey
         self.apiSecret = apiSecret
-
         host, path = _split_url(url)
 
         self.init(url)
@@ -571,8 +858,12 @@ class HuobiWebsocketApiBase(WebsocketClient):
 
     # ----------------------------------------------------------------------
     def login(self):
+
+        self.req_id += 1
         params = {
             'op': 'auth',
+            "type": "api",
+            "cid": str(self.req_id),
         }
         params.update(
             createSignature(self.apiKey,
@@ -601,17 +892,18 @@ class HuobiWebsocketApiBase(WebsocketClient):
             self.sendPacket({'pong': packet['ping']})
             return
 
-        if "op" in packet and packet["op"] == "ping":
+        elif "op" in packet and packet["op"] == "ping":
             self.sendPacket({'op': 'pong', 'ts': packet['ts']})
             return
 
-        if 'err-msg' in packet:
+        elif 'err-msg' in packet:
             return self.onErrorMsg(packet)
 
-        if "op" in packet and packet["op"] == "auth":
-            return self.onLogin()
+        elif "op" in packet and packet["op"] == "auth":
+            return self.onLogin(packet)
+        else:
 
-        self.onData(packet)
+            self.onData(packet)
 
     # ----------------------------------------------------------------------
     def onData(self, packet):  # type: (dict)->None
@@ -629,47 +921,37 @@ class HuobiWebsocketApiBase(WebsocketClient):
 
 
 ########################################################################
-class HuobiTradeWebsocketApi(HuobiWebsocketApiBase):
+class HbdmTradeWebsocketApi(HbdmWebsocketApiBase):
 
     # ----------------------------------------------------------------------
     def __init__(self, gateway):
         """"""
-        super(HuobiTradeWebsocketApi, self).__init__(gateway)
+        super(HbdmTradeWebsocketApi, self).__init__(gateway)
 
-        self.reqID = 10000
-
-        self.accountDict = gateway.accountDict
-        self.orderDict = gateway.orderDict
-        self.orderLocalDict = gateway.orderLocalDict
-        self.localOrderDict = gateway.localOrderDict
-
+        # self.accountDict = gateway.accountDict
+        # self.orderDict = gateway.orderDict
+        # self.orderLocalDict = gateway.orderLocalDict
+        # self.localOrderDict = gateway.localOrderDict
     # ----------------------------------------------------------------------
     def connect(self, symbols, apiKey, apiSecret):
-        """"""
+
+
         self.symbols = symbols
 
-        super(HuobiTradeWebsocketApi, self).connect(apiKey,
+        super(HbdmTradeWebsocketApi, self).connect(apiKey,
                                                     apiSecret,
                                                     WEBSOCKET_TRADE_HOST)
 
     # ----------------------------------------------------------------------
     def subscribeTopic(self):
         """"""
-        # 订阅资金变动
-        self.reqID += 1
-        req = {
-            "op": "sub",
-            "cid": str(self.reqID),
-            "topic": "accounts"
-        }
-        self.sendPacket(req)
-
         # 订阅委托变动
         for symbol in self.symbols:
-            self.reqID += 1
+            symbol = symbol.split('_')[0]
+            self.req_id += 1
             req = {
                 "op": "sub",
-                "cid": str(self.reqID),
+                "cid": str(self.req_id),
                 "topic": 'orders.%s' % symbol
             }
             self.sendPacket(req)
@@ -680,7 +962,7 @@ class HuobiTradeWebsocketApi(HuobiWebsocketApiBase):
         self.login()
 
     # ----------------------------------------------------------------------
-    def onLogin(self):
+    def onLogin(self, packet):
         """"""
         self.gateway.writeLog(u'交易Websocket服务器登录成功')
 
@@ -694,102 +976,65 @@ class HuobiTradeWebsocketApi(HuobiWebsocketApiBase):
             return
 
         topic = packet['topic']
-        if topic == 'accounts':
-            self.onAccount(packet['data'])
-        elif 'orders' in topic:
+        if 'orders' in topic:
             self.onOrder(packet['data'])
 
     # ----------------------------------------------------------------------
-    def onAccount(self, data):
-        """"""
-        for d in data['list']:
-            account = self.accountDict.get(d['currency'], None)
-            if not account:
-                continue
-
-            if d['type'] == 'trade':
-                account.available = float(d['balance'])
-            elif d['type'] == 'frozen':
-                account.margin = float(d['balance'])
-
-            account.balance = account.margin + account.available
-            self.gateway.onAccount(account)
-
-    # ----------------------------------------------------------------------
     def onOrder(self, data):
-        """"""
-        orderID = data['order-id']
-        strOrderID = str(orderID)
-        order = self.orderDict.get(strOrderID, None)
 
-        if not order:
-            self.gateway.localID += 1
-            localID = str(self.gateway.localID)
+        dt = datetime.fromtimestamp(data["created_at"] / 1000)
+        time = dt.strftime("%H:%M:%S")
 
-            self.orderLocalDict[strOrderID] = localID
-            self.localOrderDict[localID] = strOrderID
+        if data["client_order_id"]:
+            orderID = data["client_order_id"]
+        else:
+            orderID = data["order_id"]
 
-            order = VtOrderData()
-            order.gatewayName = self.gatewayName
 
-            order.orderID = localID
-            order.vtOrderID = '.'.join([order.gatewayName, order.orderID])
-
-            order.symbol = data['symbol']
-            order.exchange = EXCHANGE_HUOBI
-            order.vtSymbol = '.'.join([order.symbol, order.exchange])
-
-            order.price = float(data['order-price'])
-            order.totalVolume = float(data['order-amount'])
-
-            dt = datetime.fromtimestamp(data['created-at'] / 1000)
-            order.orderTime = dt.strftime('%H:%M:%S')
-
-            if 'buy' in data['order-type']:
-                order.direction = DIRECTION_LONG
-            else:
-                order.direction = DIRECTION_SHORT
-            order.offset = OFFSET_NONE
-
-            self.orderDict[strOrderID] = order
-
-        order.tradedVolume += float(data['filled-amount'])
-        order.status = statusMapReverse.get(data['order-state'], STATUS_UNKNOWN)
+        order = VtOrderData()
+        order.symbol = data["contract_code"]
+        order.exchange = EXCHANGE_HBDM
+        order.orderID = orderID
+        order.priceType = ORDERTYPE_HBDM2VT[data["order_price_type"]]
+        order.direction = DIRECTION_HBDM2VT[data["direction"]]
+        order.offset = OFFSET_HBDM2VT[data["offset"]]
+        order.price = data["price"]
+        order.volume = data['volume']
+        order.tradedVolume = data["trade_volume"]
+        order.status = statusMapReverse[data["status"]]
+        order.orderTime = time
         self.gateway.onOrder(order)
 
-        if float(data['filled-amount']):
+        trades = data['trade']
+        if not trades:
+            return
+        for d in trades:
+            dt = datetime.fromtimestamp(d["created_at"] / 1000)
+            time = dt.strftime("%H:%M:%S")
+
             trade = VtTradeData()
             trade.gatewayName = self.gatewayName
-
-            trade.tradeID = str(data['seq-id'])
-            trade.vtTradeID = '.'.join([trade.tradeID, trade.gatewayName])
-
-            trade.symbol = data['symbol']
-            trade.exchange = EXCHANGE_HUOBI
+            trade.symbol = order.symbol
             trade.vtSymbol = '.'.join([trade.symbol, trade.exchange])
+            trade.exchange = EXCHANGE_HBDM
+            trade.orderID = order.orderID
+            trade.tradeID = str(data['trade-id'])
             trade.direction = order.direction
             trade.offset = order.offset
-            trade.orderID = order.orderID
-            trade.vtOrderID = order.vtOrderID
-
-            trade.price = float(data['price'])
-            trade.volume = float(data['filled-amount'])
-
-            dt = datetime.now()
-            trade.tradeTime = dt.strftime('%H:%M:%S')
-
+            trade.price = data['trade_price']
+            trade.volume = data['trade_volume']
+            trade.tradeTime = time
             self.gateway.onTrade(trade)
 
 
 ########################################################################
-class HuobiMarketWebsocketApi(HuobiWebsocketApiBase):
+class HbdmMarketWebsocketApi(HbdmWebsocketApiBase):
 
     # ----------------------------------------------------------------------
     def __init__(self, gateway):
         """"""
-        super(HuobiMarketWebsocketApi, self).__init__(gateway)
+        super(HbdmMarketWebsocketApi, self).__init__(gateway)
 
-        self.reqID = 10000
         self.tickDict = {}
 
     # ----------------------------------------------------------------------
@@ -797,7 +1042,7 @@ class HuobiMarketWebsocketApi(HuobiWebsocketApiBase):
         """"""
         self.symbols = symbols
 
-        super(HuobiMarketWebsocketApi, self).connect(apiKey,
+        super(HbdmMarketWebsocketApi, self).connect(apiKey,
                                                      apiSecret,
                                                      WEBSOCKET_MARKET_HOST)
 
@@ -815,32 +1060,33 @@ class HuobiMarketWebsocketApi(HuobiWebsocketApiBase):
             tick = VtTickData()
             tick.gatewayName = self.gatewayName
             tick.symbol = symbol
-            tick.exchange = EXCHANGE_HUOBI
+            tick.exchange = EXCHANGE_HBDM
             tick.vtSymbol = '.'.join([tick.symbol, tick.exchange])
             self.tickDict[symbol] = tick
 
             # 订阅深度和成交
-            self.reqID += 1
+            self.req_id += 1
             req = {
                 "sub": "market.%s.depth.step0" % symbol,
-                "id": str(self.reqID)
+                "id": str(self.req_id)
             }
             self.sendPacket(req)
 
-            self.reqID += 1
+            self.req_id += 1
             req = {
                 "sub": "market.%s.detail" % symbol,
-                "id": str(self.reqID)
+                "id": str(self.req_id)
             }
             self.sendPacket(req)
 
     # ----------------------------------------------------------------------
     def onData(self, packet):  # type: (dict)->None
         """"""
-        if 'ch' in packet:
-            if 'depth.step' in packet['ch']:
+        channel = packet.get("ch", None)
+        if channel:
+            if 'depth.step' in channel:
                 self.onMarketDepth(packet)
-            elif 'detail' in packet['ch']:
+            elif 'detail' in channel:
                 self.onMarketDetail(packet)
         elif 'err-code' in packet:
             self.gateway.writeLog(u'错误代码：%s, 信息：%s' % (packet['err-code'], packet['err-msg']))
@@ -899,12 +1145,3 @@ class HuobiMarketWebsocketApi(HuobiWebsocketApiBase):
             newtick = copy(tick)
             self.gateway.onTick(newtick)
 
-
-# ----------------------------------------------------------------------
-def printDict(d):
-    """"""
-    print('-' * 30)
-    l = d.keys()
-    l.sort()
-    for k in l:
-        print(type(k), k, d[k])

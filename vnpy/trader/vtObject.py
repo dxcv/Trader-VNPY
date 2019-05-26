@@ -231,7 +231,8 @@ class VtOrderData(VtBaseData):
         self.totalVolume = EMPTY_INT            # 报单总数量
         self.tradedVolume = EMPTY_INT           # 报单成交数量
         self.status = EMPTY_UNICODE             # 报单状态
-        
+        self.priceType = EMPTY_STRING           # 报单价格类型，虚拟币交易所需要
+
         self.orderTime = EMPTY_STRING           # 发单时间
         self.cancelTime = EMPTY_STRING          # 撤单时间
         

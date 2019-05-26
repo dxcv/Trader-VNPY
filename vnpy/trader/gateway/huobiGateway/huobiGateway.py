@@ -601,7 +601,7 @@ class HuobiWebsocketApiBase(WebsocketClient):
             return self.onErrorMsg(packet)
         
         if "op" in packet and packet["op"] == "auth":
-            return self.onLogin()
+            return self.onLogin(packet)
         
         self.onData(packet)
     
@@ -672,7 +672,7 @@ class HuobiTradeWebsocketApi(HuobiWebsocketApiBase):
         self.login()
     
     #----------------------------------------------------------------------
-    def onLogin(self):
+    def onLogin(self,packet):
         """"""
         self.gateway.writeLog(u'交易Websocket服务器登录成功')
         

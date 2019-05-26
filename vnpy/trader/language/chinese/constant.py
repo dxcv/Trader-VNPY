@@ -84,6 +84,7 @@ EXCHANGE_FXCM = 'FXCM'         # FXCM外汇做市商
 
 EXCHANGE_OKCOIN = 'OKCOIN'       # OKCOIN比特币交易所
 EXCHANGE_HUOBI = 'HUOBI'         # 火币比特币交易所
+EXCHANGE_HBDM = 'HBDM'           # 火币合约交易所
 EXCHANGE_LBANK = 'LBANK'         # LBANK比特币交易所
 EXCHANGE_ZB = 'ZB'		 # 比特币中国比特币交易所
 EXCHANGE_OKEX = 'OKEX'		 # OKEX比特币交易所
