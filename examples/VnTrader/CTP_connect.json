@@ -1,7 +1,9 @@
 {
     "brokerID": "9999", 
-    "mdAddress": "tcp://180.168.146.187:10031", 
-    "tdAddress": "tcp://180.168.146.187:10030", 
-    "userID": "000300",
-    "password": "123456789"
+    "mdAddress": "tcp://180.168.146.187:13040",
+    "tdAddress": "tcp://180.168.146.187:13030",
+    "userID": "144154",
+    "password": "guanghui1209",
+    "appID": "8695826010",
+    "authCode": "0000000000000000"
 }
