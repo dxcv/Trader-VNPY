@@ -5,7 +5,7 @@ from logging import INFO
 import time
 from datetime import datetime
 
-from vnpy.trader.language import constant
+from vnpy.trader.language import *
 from vnpy.trader.vtConstant import (EMPTY_FLOAT, EMPTY_INT, EMPTY_STRING, EMPTY_UNICODE)
 
 
@@ -251,7 +251,7 @@ class VtOrderData(VtBaseData):
                           direction,                        # type: str
                           offset=EMPTY_UNICODE,             # type: str
                           tradedVolume=EMPTY_INT,           # type: int
-                          status=constant.STATUS_UNKNOWN,   # type: str
+                          status=STATUS_UNKNOWN,            # type: str
                           orderTime=EMPTY_UNICODE,          # type: str
                           cancelTime=EMPTY_UNICODE,         # type: str
                           ):                                # type: (...)->VtOrderData

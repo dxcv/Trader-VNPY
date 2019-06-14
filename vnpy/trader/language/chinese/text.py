@@ -105,7 +105,6 @@ LOG = u'日志'
 ERROR = u'错误'
 TRADE = u'成交'
 ORDER = u'委托'
-POSITION = u'持仓'
 ACCOUNT = u'账户'
 WORKING_ORDER = u'可撤'
 

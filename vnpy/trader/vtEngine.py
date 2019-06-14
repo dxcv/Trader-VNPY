@@ -16,6 +16,7 @@ from vnpy.event import Event
 from vnpy.trader.vtGlobal import globalSetting
 from vnpy.trader.vtEvent import *
 from vnpy.trader.vtGateway import *
+from vnpy.trader.language import *
 from vnpy.trader.language import text
 from vnpy.trader.vtFunction import getTempPath
 

@@ -1,0 +1,9 @@
+{
+    "working": true,
+
+    "tick":
+    [
+        ["EOS_CQ", "HBDM"],
+        ["EOS_NW", "HBDM"]
+    ]
+}
