@@ -6,7 +6,7 @@ import traceback
 from vnpy.trader.vtFunction import loadIconPath
 from vnpy.trader.vtGlobal import globalSetting
 
-from uiCryptoWidget import *
+from examples.CryptoTrader.uiCryptoWidget import *
 
 
 ########################################################################

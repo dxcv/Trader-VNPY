@@ -12,10 +12,10 @@ from vnpy.trader.vtEngine import MainEngine
 from vnpy.trader.uiQt import createQApp
 
 # 加载底层接口
-from vnpy.trader.gateway import (huobiGateway, okexGateway, okexfGateway,hbdmGateway)
+from vnpy.trader.gateway import (huobiGateway, okexGateway, okexfGateway, hbdmGateway)
 
 # 加载上层应用
-from vnpy.trader.app import (algoTrading)
+from vnpy.trader.app import (algoTrading,CryptoData)
 
 # 当前目录组件
 from uiCryptoWindow import MainWindow
@@ -41,6 +41,7 @@ def main():
 
     # 添加上层应用
     me.addApp(algoTrading)
+    me.addApp(CryptoData)
     
     # 创建主窗口
     mw = MainWindow(me, ee)
