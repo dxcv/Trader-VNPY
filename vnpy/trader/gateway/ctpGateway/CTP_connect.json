@@ -1,7 +1,9 @@
 {
-    "brokerID": "9999", 
-    "mdAddress": "tcp://180.168.146.187:10031", 
-    "tdAddress": "tcp://180.168.146.187:10030", 
-    "userID": "091498",
-    "password": "guanghui1209"
+    "brokerID": "66666", 
+    "tdAddress": "tcp://ctpfz1-front1.citicsf.com:51305", 
+    "mdAddress": "tcp://ctpfz1-front1.citicsf.com:51313", 
+    "userID": "7120102508",
+    "password": "guanghui1209",
+    "appID": "dient_ray_1.9.2",
+    "authCode": "PDBTFWTW7C89NCYQ"
 }

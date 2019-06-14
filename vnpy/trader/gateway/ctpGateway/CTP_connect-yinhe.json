@@ -1,0 +1,9 @@
+{
+    "brokerID": "4040", 
+    "tdAddress": "tcp://58.247.171.151:55205", 
+    "mdAddress": "tcp://58.247.171.151:55213", 
+    "userID": "2310000068",
+    "password": "guanghui1209",
+    "appID": "client_ray_1.9.2",
+    "authCode": "349TW6J6GHMG365D"
+}
